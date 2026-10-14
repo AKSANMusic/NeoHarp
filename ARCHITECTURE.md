@@ -1,6 +1,6 @@
 # NeoHarp Architecture & Implementation Report
 
-This document outlines the current state of the NeoHarp repository, which successfully implements Phase 1 (Python Proof-of-Concept) and scaffolds Phase 3 (JUCE C++ Production Plugin) of the initial technical feasibility assessment.
+This document outlines the current state of the NeoHarp repository. It successfully implements Phase 1 (Python Proof-of-Concept) and the core engine for Phase 3 (JUCE C++ Production Plugin) of the initial technical feasibility assessment.
 
 ---
 
@@ -29,21 +29,20 @@ To achieve sample-accurate scheduling, zero-allocation real-time safety, and DAW
 
 ### 2.1 Directory Structure (`Plugin/`)
 * **`CMakeLists.txt`**: Uses CMake `FetchContent` to download JUCE automatically during the configure phase. It is configured to build `NeoHarp` as a VST3 plugin and Standalone app, marked correctly as a MIDI effect.
-* **`Source/PluginProcessor.h/cpp`**: The core audio processing module. It currently implements a passthrough `processBlock` and sets up the lock-free data structures.
+* **`Source/PluginProcessor.h/cpp`**: The core audio processing module, integrating the `PitchMapper` logic into `processBlock`.
 * **`Source/PluginEditor.h/cpp`**: The scaffolding for the custom UI.
 * **`Source/HarmonicContext.h`**: The critical real-time safe data structures.
+* **`Source/PitchMapper.h/cpp`**: The decoupled C++ core engine responsible for microtonal MPE routing and voice stealing.
 
-### 2.2 Lock-Free State Management
+### 2.2 Lock-Free State Management & Real-Time Safety
 The most important architectural constraint for a C++ audio plugin is avoiding memory allocation, locks, or blocking operations on the audio thread.
 
-The `HarmonicContext.h` defines the `Scale` and `TransitionMode`. To ensure true real-time safety:
-1. `std::vector` was explicitly avoided in the `Scale` struct. Instead, a fixed-size `std::array<float, 24>` is used alongside a `size_t` tracker to prevent heap allocations during scale changes.
-2. The `PluginProcessor` owns a `juce::AbstractFifo` and a pre-allocated array of `HarmonicContext` structs.
-3. When the user (via the `PluginEditor` UI) or a MIDI CC message requests a scale change, it is pushed into the FIFO.
-4. Inside the `processBlock()` audio thread callback, the engine does a lock-free check (`getNumReady()`) and pops the new state before parsing the incoming MIDI buffers.
+1. **State Transfer:** The `HarmonicContext.h` defines the `Scale` and `TransitionMode`. `std::vector` was explicitly avoided in the `Scale` struct. Instead, a fixed-size `std::array<float, 24>` is used. The `PluginProcessor` owns a `juce::AbstractFifo` to pass contexts from the UI to the audio thread entirely lock-free.
+2. **Audio Processing (`processBlock`):** Inside `processBlock()`, the engine does a lock-free check (`getNumReady()`) and pops the new state. If a state change occurs, it asks the `PitchMapper` to immediately issue Note-Offs for hanging notes *before* parsing the incoming MIDI buffers.
+3. **PitchMapper Engine:** The `PitchMapper` tracks active voices and the MPE channel pool (channels 2-16) exclusively using pre-sized `std::array` containers. `std::map` and `new` keywords are completely omitted to ensure zero heap allocations during live performance.
 
 ### 2.3 Next Steps (C++ Engine)
-The repository is primed for the C++ port. The immediate next steps would be:
-1. Translating the `NeoHarpEngine` Python logic into a C++ `PitchMapper` class that runs inside `processBlock()`.
-2. Utilizing JUCE's `MidiBuffer` to achieve sample-accurate output scheduling (replacing Python's `time.sleep` strum emulator).
-3. Building out the `PluginEditor` UI components to control the `HarmonicContext`.
+With the remapping core integrated safely, the remaining Phase 3 milestones are:
+1. **Strum Engine:** Utilizing JUCE's `MidiBuffer` to achieve sample-accurate output scheduling for guitar-like strums (replacing Python's `time.sleep` emulator).
+2. **Plugin GUI:** Building out the `PluginEditor` UI components (sliders, grids) to construct and push `HarmonicContext` changes to the FIFO.
+3. **Preset Management:** Saving/Loading XML or JSON representations of scales so the plugin state can be recalled by the host DAW.

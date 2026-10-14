@@ -57,6 +57,9 @@ private:
     // Core Engine Mapper
     PitchMapper mapper;
 
+    // Pre-allocated MIDI buffer for processBlock
+    juce::MidiBuffer processedBuffer;
+
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NeoHarpAudioProcessor)
 };

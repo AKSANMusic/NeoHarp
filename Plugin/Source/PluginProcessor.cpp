@@ -123,24 +123,38 @@ bool NeoHarpAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) 
 void NeoHarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     buffer.clear();
+    processedBuffer.clear();
 
-    juce::MidiBuffer processedBuffer;
-
-    // 1. Lock-free pop of any new state changes from UI
+    // 1. Lock-free pop of any new state changes from UI. Drain the FIFO completely.
     auto numToRead = contextFifo.getNumReady();
     if (numToRead > 0)
     {
         int start1, size1, start2, size2;
-        contextFifo.prepareToRead (1, start1, size1, start2, size2);
+        contextFifo.prepareToRead (numToRead, start1, size1, start2, size2);
 
-        if (size1 > 0)
+        bool contextChanged = false;
+
+        // Apply all events in block 1
+        for (int i = 0; i < size1; ++i)
         {
-            currentContext = contextBuffer[start1];
-            // 2. Immediately apply context at sample 0 to handle hanging notes safely
-            mapper.applyNewContext(currentContext, processedBuffer, 0);
+            currentContext = contextBuffer[(start1 + i) % 16];
+            contextChanged = true;
+        }
+
+        // Apply all events in block 2
+        for (int i = 0; i < size2; ++i)
+        {
+            currentContext = contextBuffer[(start2 + i) % 16];
+            contextChanged = true;
         }
 
         contextFifo.finishedRead (size1 + size2);
+
+        if (contextChanged)
+        {
+            // 2. Immediately apply context at sample 0 to handle hanging notes safely
+            mapper.applyNewContext(currentContext, processedBuffer, 0);
+        }
     }
 
     // 3. Process incoming MIDI
@@ -150,6 +164,7 @@ void NeoHarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         mapper.processMessage(message, metadata.samplePosition, processedBuffer);
     }
 
+    // 4. Send our modified buffer to the host
     midiMessages.swapWith(processedBuffer);
 }
 
