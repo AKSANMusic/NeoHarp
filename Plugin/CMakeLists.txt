@@ -35,6 +35,8 @@ target_sources(NeoHarp PRIVATE
     Source/PluginEditor.cpp
     Source/PluginEditor.h
     Source/HarmonicContext.h
+    Source/PitchMapper.cpp
+    Source/PitchMapper.h
 )
 
 juce_generate_juce_header(NeoHarp)

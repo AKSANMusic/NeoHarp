@@ -86,10 +86,19 @@ void NeoHarpAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
 {
     // Initialize context
     contextFifo.reset();
+    mapper.reset();
+
+    // Set a default C Major Scale to start
+    HarmonicContext defaultContext;
+    defaultContext.scale.rootMidi = 60;
+    defaultContext.scale.numIntervals = 7;
+    defaultContext.scale.intervalsCents = { 0.0f, 200.0f, 400.0f, 500.0f, 700.0f, 900.0f, 1100.0f };
+    pushNewHarmonicContext(defaultContext);
 }
 
 void NeoHarpAudioProcessor::releaseResources()
 {
+    mapper.reset();
 }
 
 bool NeoHarpAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -115,6 +124,8 @@ void NeoHarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
 {
     buffer.clear();
 
+    juce::MidiBuffer processedBuffer;
+
     // 1. Lock-free pop of any new state changes from UI
     auto numToRead = contextFifo.getNumReady();
     if (numToRead > 0)
@@ -123,23 +134,23 @@ void NeoHarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         contextFifo.prepareToRead (1, start1, size1, start2, size2);
 
         if (size1 > 0)
+        {
             currentContext = contextBuffer[start1];
+            // 2. Immediately apply context at sample 0 to handle hanging notes safely
+            mapper.applyNewContext(currentContext, processedBuffer, 0);
+        }
 
         contextFifo.finishedRead (size1 + size2);
     }
 
-    // 2. Process MIDI
-    // In Phase 3, this is where MidiZoneRouter and PitchMapper will operate.
-    // For now, we just pass MIDI through.
+    // 3. Process incoming MIDI
+    for (const auto metadata : midiMessages)
+    {
+        auto message = metadata.getMessage();
+        mapper.processMessage(message, metadata.samplePosition, processedBuffer);
+    }
 
-    // juce::MidiBuffer processedBuffer;
-    // for (const auto metadata : midiMessages)
-    // {
-    //     auto message = metadata.getMessage();
-    //     // Modify message...
-    //     // processedBuffer.addEvent(message, metadata.samplePosition);
-    // }
-    // midiMessages.swapWith(processedBuffer);
+    midiMessages.swapWith(processedBuffer);
 }
 
 //==============================================================================

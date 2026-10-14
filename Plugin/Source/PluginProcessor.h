@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "HarmonicContext.h"
+#include "PitchMapper.h"
 
 //==============================================================================
 class NeoHarpAudioProcessor  : public juce::AudioProcessor
@@ -52,6 +53,9 @@ private:
 
     // The current state actively used in processBlock
     HarmonicContext currentContext;
+
+    // Core Engine Mapper
+    PitchMapper mapper;
 
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NeoHarpAudioProcessor)
