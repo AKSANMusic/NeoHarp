@@ -28,21 +28,24 @@ The Python implementation serves as a functional reference for the core MIDI rem
 To achieve sample-accurate scheduling, zero-allocation real-time safety, and DAW compatibility, the repository includes the scaffolding for a JUCE-based VST3 and Standalone application.
 
 ### 2.1 Directory Structure (`Plugin/`)
-* **`CMakeLists.txt`**: Uses CMake `FetchContent` to download JUCE automatically during the configure phase. It is configured to build `NeoHarp` as a VST3 plugin and Standalone app, marked correctly as a MIDI effect.
-* **`Source/PluginProcessor.h/cpp`**: The core audio processing module, integrating the `PitchMapper` logic into `processBlock`.
-* **`Source/PluginEditor.h/cpp`**: The scaffolding for the custom UI.
+* **`CMakeLists.txt`**: Uses CMake `FetchContent` to download JUCE and Catch2 automatically during the configure phase. It is configured to build `NeoHarp` as a VST3 plugin, a Standalone app, and an independent `NeoHarpTests` headless executable.
+* **`Source/PluginProcessor.h/cpp`**: The core audio processing module. Integrates the `PitchMapper` logic, the `StrumEngine`, and the `AudioProcessorValueTreeState` (APVTS).
+* **`Source/PluginEditor.h/cpp`**: The plugin GUI. Implements a 30Hz diagnostic timer to display lock-free status updates and parameter sliders.
 * **`Source/HarmonicContext.h`**: The critical real-time safe data structures.
 * **`Source/PitchMapper.h/cpp`**: The decoupled C++ core engine responsible for microtonal MPE routing and voice stealing.
+* **`Source/StrumEngine.h/cpp`**: The sample-accurate strum sequencer synchronized with host BPM.
+* **`Tests/PitchMapperTests.cpp`**: Catch2 test suite replicating the Python PoC edge cases in C++.
 
 ### 2.2 Lock-Free State Management & Real-Time Safety
 The most important architectural constraint for a C++ audio plugin is avoiding memory allocation, locks, or blocking operations on the audio thread.
 
 1. **State Transfer:** The `HarmonicContext.h` defines the `Scale` and `TransitionMode`. `std::vector` was explicitly avoided in the `Scale` struct. Instead, a fixed-size `std::array<float, 24>` is used. The `PluginProcessor` owns a `juce::AbstractFifo` to pass contexts from the UI to the audio thread entirely lock-free.
-2. **Audio Processing (`processBlock`):** Inside `processBlock()`, the engine does a lock-free check (`getNumReady()`) and pops the new state. If a state change occurs, it asks the `PitchMapper` to immediately issue Note-Offs for hanging notes *before* parsing the incoming MIDI buffers.
+2. **Audio Processing (`processBlock`):** Inside `processBlock()`, the engine does a lock-free check (`getNumReady()`) and drains the state queue. If a state change occurs, it asks the `PitchMapper` to immediately issue Note-Offs for hanging notes *before* parsing the incoming MIDI buffers. To avoid allocation inside the audio thread, the secondary `juce::MidiBuffer` is declared as a pre-allocated class member variable rather than a local variable.
 3. **PitchMapper Engine:** The `PitchMapper` tracks active voices and the MPE channel pool (channels 2-16) exclusively using pre-sized `std::array` containers. `std::map` and `new` keywords are completely omitted to ensure zero heap allocations during live performance.
+4. **Strum Engine:** Triggers sample-accurate note delays by reading `juce::AudioPlayHead` BPM, translating musical divisions into sample counts based on the host sample rate, and buffering into `std::array` to avoid allocations on the sequencer.
 
-### 2.3 Next Steps (C++ Engine)
-With the remapping core integrated safely, the remaining Phase 3 milestones are:
-1. **Strum Engine:** Utilizing JUCE's `MidiBuffer` to achieve sample-accurate output scheduling for guitar-like strums (replacing Python's `time.sleep` emulator).
-2. **Plugin GUI:** Building out the `PluginEditor` UI components (sliders, grids) to construct and push `HarmonicContext` changes to the FIFO.
-3. **Preset Management:** Saving/Loading XML or JSON representations of scales so the plugin state can be recalled by the host DAW.
+### 2.3 Next Steps
+With the core remapping engine, headless tests, strum timing, and diagnostic APVTS GUI successfully implemented, the remaining steps for production release are:
+1. **Full UI Development:** Building out the `PluginEditor` UI grids to visually construct and drag-and-drop `HarmonicContext` scale degree intervals.
+2. **Preset Management:** Saving/Loading XML or JSON representations of scales so the plugin state can be recalled by the host DAW natively via APVTS.
+3. **DAW Integration Testing:** Live stress-testing inside hosts like Ableton/Reaper with MPE synths (Surge XT/Vital) at variable buffer sizes.
