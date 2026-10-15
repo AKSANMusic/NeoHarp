@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "ScaleBuilderComponent.h"
 
 //==============================================================================
 class NeoHarpAudioProcessorEditor  : public juce::AudioProcessorEditor, public juce::Timer
@@ -22,6 +23,8 @@ private:
 
     juce::Slider strumSpeedSlider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> strumSpeedAttachment;
+
+    ScaleBuilderComponent scaleBuilder;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NeoHarpAudioProcessorEditor)
 };

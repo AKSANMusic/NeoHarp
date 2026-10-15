@@ -44,19 +44,25 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // Public method for UI to update context
-    void pushNewHarmonicContext (const HarmonicContext& newContext);
+    // Public method for UI to update canonical context, serialize, and push to audio thread
+    void setHarmonicContext (const HarmonicContext& newContext);
+
+    // Get the canonical message-thread context
+    const HarmonicContext& getCanonicalContext() const { return canonicalContext; }
 
     // Audio Processor Value Tree State for automation and preset saving
     juce::AudioProcessorValueTreeState apvts;
 
 private:
     // Lock-free queue for receiving state updates from the message thread
-    juce::AbstractFifo contextFifo { 16 };
-    HarmonicContext contextBuffer[16];
+    juce::AbstractFifo contextFifo { 64 };
+    HarmonicContext contextBuffer[64];
 
-    // The current state actively used in processBlock
+    // The current state actively used in processBlock (audio thread copy)
     HarmonicContext currentContext;
+
+    // Canonical message-thread copy of the state
+    HarmonicContext canonicalContext;
 
     // Core Engine Mapper
     PitchMapper mapper;
@@ -74,7 +80,6 @@ private:
 public:
     // Read-only diagnostic access for the UI
     const PitchMapper& getMapper() const { return mapper; }
-    const HarmonicContext& getCurrentContext() const { return currentContext; }
 
     // Creates the parameter layout for APVTS
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

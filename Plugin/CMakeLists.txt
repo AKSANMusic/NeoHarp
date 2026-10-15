@@ -39,6 +39,8 @@ target_sources(NeoHarp PRIVATE
     Source/PitchMapper.h
     Source/StrumEngine.cpp
     Source/StrumEngine.h
+    Source/ScaleBuilderComponent.cpp
+    Source/ScaleBuilderComponent.h
 )
 
 juce_generate_juce_header(NeoHarp)
@@ -70,7 +72,12 @@ FetchContent_MakeAvailable(Catch2)
 
 add_executable(NeoHarpTests
     Tests/PitchMapperTests.cpp
+    Tests/StateTests.cpp
     Source/PitchMapper.cpp
+    Source/PluginProcessor.cpp
+    Source/StrumEngine.cpp
+    Source/PluginEditor.cpp
+    Source/ScaleBuilderComponent.cpp
 )
 
 target_include_directories(NeoHarpTests PRIVATE Source)
@@ -81,12 +88,15 @@ target_include_directories(NeoHarpTests PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/NeoH
 target_link_libraries(NeoHarpTests PRIVATE
     Catch2::Catch2WithMain
     juce::juce_audio_basics
+    juce::juce_audio_processors
     juce::juce_core
     juce::juce_events
     juce::juce_graphics
+    juce::juce_gui_extra
 )
 
 target_compile_definitions(NeoHarpTests PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
+    JucePlugin_Name="NeoHarpTests"
 )

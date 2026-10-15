@@ -107,12 +107,22 @@ void NeoHarpAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     strumEngine.prepareToPlay(sampleRate);
     strumEngine.reset();
 
-    // Set a default C Major Scale to start
-    HarmonicContext defaultContext;
-    defaultContext.scale.rootMidi = 60;
-    defaultContext.scale.numIntervals = 7;
-    defaultContext.scale.intervalsCents = { 0.0f, 200.0f, 400.0f, 500.0f, 700.0f, 900.0f, 1100.0f };
-    pushNewHarmonicContext(defaultContext);
+    // Ensure the audio thread starts with the canonical context
+    // If running in a DAW, setStateInformation will have already populated this
+    // from the project save file before prepareToPlay is called.
+    if (canonicalContext.scale.numIntervals == 0)
+    {
+        HarmonicContext defaultContext;
+        defaultContext.scale.rootMidi = 60;
+        defaultContext.scale.numIntervals = 7;
+        defaultContext.scale.intervalsCents = { 0.0f, 200.0f, 400.0f, 500.0f, 700.0f, 900.0f, 1100.0f };
+        setHarmonicContext(defaultContext);
+    }
+    else
+    {
+        // Force push the restored canonical context to the audio thread
+        setHarmonicContext(canonicalContext);
+    }
 }
 
 void NeoHarpAudioProcessor::releaseResources()
@@ -158,14 +168,14 @@ void NeoHarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         // Apply all events in block 1
         for (int i = 0; i < size1; ++i)
         {
-            currentContext = contextBuffer[(start1 + i) % 16];
+            currentContext = contextBuffer[(start1 + i) % 64];
             contextChanged = true;
         }
 
         // Apply all events in block 2
         for (int i = 0; i < size2; ++i)
         {
-            currentContext = contextBuffer[(start2 + i) % 16];
+            currentContext = contextBuffer[(start2 + i) % 64];
             contextChanged = true;
         }
 
@@ -245,6 +255,26 @@ void NeoHarpAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     // Save APVTS state
     auto state = apvts.copyState();
+
+    // Save HarmonicContext to ValueTree
+    juce::ValueTree contextTree ("HarmonicContext");
+    contextTree.setProperty ("rootMidi", canonicalContext.scale.rootMidi, nullptr);
+    contextTree.setProperty ("numIntervals", static_cast<int>(canonicalContext.scale.numIntervals), nullptr);
+    contextTree.setProperty ("transitionMode", static_cast<int>(canonicalContext.transitionMode), nullptr);
+
+    juce::ValueTree intervalsTree ("Intervals");
+    for (size_t i = 0; i < canonicalContext.scale.numIntervals; ++i)
+    {
+        juce::ValueTree interval ("Interval");
+        interval.setProperty ("cents", canonicalContext.scale.intervalsCents[i], nullptr);
+        intervalsTree.appendChild(interval, nullptr);
+    }
+    contextTree.appendChild(intervalsTree, nullptr);
+
+    // Remove old context if it exists, append new
+    state.removeChild(state.getChildWithName("HarmonicContext"), nullptr);
+    state.appendChild(contextTree, nullptr);
+
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -255,13 +285,46 @@ void NeoHarpAudioProcessor::setStateInformation (const void* data, int sizeInByt
     std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
 
     if (xmlState.get() != nullptr)
+    {
         if (xmlState->hasTagName (apvts.state.getType()))
-            apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
+        {
+            auto newState = juce::ValueTree::fromXml (*xmlState);
+            apvts.replaceState (newState);
+
+            // Restore HarmonicContext
+            auto contextTree = newState.getChildWithName("HarmonicContext");
+            if (contextTree.isValid())
+            {
+                HarmonicContext restoredContext;
+                restoredContext.scale.rootMidi = contextTree.getProperty("rootMidi", 60);
+                restoredContext.scale.numIntervals = static_cast<size_t>(static_cast<int>(contextTree.getProperty("numIntervals", 0)));
+                restoredContext.transitionMode = static_cast<TransitionMode>(static_cast<int>(contextTree.getProperty("transitionMode", 0)));
+
+                auto intervalsTree = contextTree.getChildWithName("Intervals");
+                if (intervalsTree.isValid())
+                {
+                    int i = 0;
+                    for (auto interval : intervalsTree)
+                    {
+                        if (i < 24)
+                            restoredContext.scale.intervalsCents[i++] = interval.getProperty("cents", 0.0f);
+                    }
+                }
+
+                // Directly set the canonical context and push to FIFO so audio thread picks it up
+                setHarmonicContext(restoredContext);
+            }
+        }
+    }
 }
 
 //==============================================================================
-void NeoHarpAudioProcessor::pushNewHarmonicContext (const HarmonicContext& newContext)
+void NeoHarpAudioProcessor::setHarmonicContext (const HarmonicContext& newContext)
 {
+    // 1. Update the canonical copy on the message thread
+    canonicalContext = newContext;
+
+    // 2. Push to lock-free FIFO for the audio thread
     int start1, size1, start2, size2;
     contextFifo.prepareToWrite (1, start1, size1, start2, size2);
 
@@ -269,6 +332,8 @@ void NeoHarpAudioProcessor::pushNewHarmonicContext (const HarmonicContext& newCo
         contextBuffer[start1] = newContext;
 
     contextFifo.finishedWrite (size1 + size2);
+
+    // (Note: APVTS serialization happens automatically in getStateInformation when DAW saves)
 }
 
 //==============================================================================
