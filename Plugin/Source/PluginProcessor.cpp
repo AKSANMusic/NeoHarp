@@ -11,13 +11,30 @@ NeoHarpAudioProcessor::NeoHarpAudioProcessor()
                       #endif
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
-                       )
+                       ),
+       apvts (*this, nullptr, "Parameters", createParameterLayout())
 #endif
 {
+    // Cache the parameter pointer for RT-safe access in processBlock
+    strumSpeedParam = apvts.getRawParameterValue("STRUM_SPEED");
 }
 
 NeoHarpAudioProcessor::~NeoHarpAudioProcessor()
 {
+}
+
+juce::AudioProcessorValueTreeState::ParameterLayout NeoHarpAudioProcessor::createParameterLayout()
+{
+    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
+
+    // Core parameters based on requirements
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { "STRUM_SPEED", 1 },
+        "Strum Speed",
+        juce::NormalisableRange<float> (0.0f, 100.0f, 1.0f),
+        20.0f)); // intervalMs default 20ms
+
+    return { params.begin(), params.end() };
 }
 
 //==============================================================================
@@ -87,6 +104,8 @@ void NeoHarpAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     // Initialize context
     contextFifo.reset();
     mapper.reset();
+    strumEngine.prepareToPlay(sampleRate);
+    strumEngine.reset();
 
     // Set a default C Major Scale to start
     HarmonicContext defaultContext;
@@ -99,6 +118,7 @@ void NeoHarpAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
 void NeoHarpAudioProcessor::releaseResources()
 {
     mapper.reset();
+    strumEngine.reset();
 }
 
 bool NeoHarpAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -123,6 +143,7 @@ bool NeoHarpAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) 
 void NeoHarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     buffer.clear();
+    strumBuffer.clear();
     processedBuffer.clear();
 
     // 1. Lock-free pop of any new state changes from UI. Drain the FIFO completely.
@@ -157,14 +178,54 @@ void NeoHarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         }
     }
 
-    // 3. Process incoming MIDI
+    // 3. Process incoming MIDI (from host)
+    // Here we can intercept chords intended to be strummed.
+    // For now, we will pass them directly to the mapper,
+    // but we can trigger the strum engine via CC or UI.
     for (const auto metadata : midiMessages)
+    {
+        auto message = metadata.getMessage();
+
+        // As a PoC hook: If we receive a C1 (note 24) on LH, schedule a strum!
+        if (message.isNoteOn() && message.getNoteNumber() == 24)
+        {
+            float speedMs = strumSpeedParam->load();
+
+            // Get BPM from host for sync
+            double bpm = 120.0;
+            if (auto* playHead = getPlayHead())
+            {
+                if (auto position = playHead->getPosition())
+                {
+                    if (auto hostBpm = position->getBpm())
+                    {
+                        bpm = *hostBpm;
+                    }
+                }
+            }
+
+            int chord[6] = { 60, 62, 64, 65, 67, 69 }; // Some RH keys
+
+            // If speedMs is 0.0, strumEngine will use BPM-synced 1/16th notes instead of arbitrary milliseconds
+            strumEngine.scheduleStrum(chord, 6, speedMs, true, 100, 5, bpm, 0.25);
+        }
+        else
+        {
+            mapper.processMessage(message, metadata.samplePosition, processedBuffer);
+        }
+    }
+
+    // 4. Process Strum Engine (injects scheduled note-ons into strumBuffer)
+    strumEngine.processBlock(strumBuffer, buffer.getNumSamples());
+
+    // 5. Route strum output back through PitchMapper
+    for (const auto metadata : strumBuffer)
     {
         auto message = metadata.getMessage();
         mapper.processMessage(message, metadata.samplePosition, processedBuffer);
     }
 
-    // 4. Send our modified buffer to the host
+    // 6. Send our modified buffer to the host
     midiMessages.swapWith(processedBuffer);
 }
 
@@ -182,10 +243,20 @@ juce::AudioProcessorEditor* NeoHarpAudioProcessor::createEditor()
 //==============================================================================
 void NeoHarpAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
+    // Save APVTS state
+    auto state = apvts.copyState();
+    std::unique_ptr<juce::XmlElement> xml (state.createXml());
+    copyXmlToBinary (*xml, destData);
 }
 
 void NeoHarpAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+    // Restore APVTS state
+    std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
+
+    if (xmlState.get() != nullptr)
+        if (xmlState->hasTagName (apvts.state.getType()))
+            apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
 }
 
 //==============================================================================

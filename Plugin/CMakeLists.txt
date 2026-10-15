@@ -37,6 +37,8 @@ target_sources(NeoHarp PRIVATE
     Source/HarmonicContext.h
     Source/PitchMapper.cpp
     Source/PitchMapper.h
+    Source/StrumEngine.cpp
+    Source/StrumEngine.h
 )
 
 juce_generate_juce_header(NeoHarp)
@@ -54,4 +56,37 @@ target_link_libraries(NeoHarp PRIVATE
     juce::juce_gui_extra
     juce::juce_events
     juce::juce_core
+)
+
+# ==============================================================================
+# Catch2 Tests
+# ==============================================================================
+FetchContent_Declare(
+  Catch2
+  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+  GIT_TAG        v3.4.0
+)
+FetchContent_MakeAvailable(Catch2)
+
+add_executable(NeoHarpTests
+    Tests/PitchMapperTests.cpp
+    Source/PitchMapper.cpp
+)
+
+target_include_directories(NeoHarpTests PRIVATE Source)
+
+# So PitchMapper can find JuceHeader.h when compiled inside NeoHarpTests
+target_include_directories(NeoHarpTests PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/NeoHarp_artefacts/JuceLibraryCode)
+
+target_link_libraries(NeoHarpTests PRIVATE
+    Catch2::Catch2WithMain
+    juce::juce_audio_basics
+    juce::juce_core
+    juce::juce_events
+    juce::juce_graphics
+)
+
+target_compile_definitions(NeoHarpTests PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
 )

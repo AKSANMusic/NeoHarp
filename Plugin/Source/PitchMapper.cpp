@@ -56,13 +56,10 @@ void PitchMapper::processMessage(const juce::MidiMessage& message, int samplePos
 
             int channel = allocateChannel(note, outputBuffer, samplePosition);
 
-            // Send Pitch bend before note on
-            if (outPb != 0)
-            {
-                // outPb is signed -8192 to 8191. JUCE pitchWheelValue takes 0 to 16383.
-                int unsignedPb = outPb + 8192;
-                outputBuffer.addEvent(juce::MidiMessage::pitchWheel(channel, unsignedPb), samplePosition);
-            }
+            // Send Pitch bend before note on (send it even if 0 to reset pitch wheel)
+            // outPb is signed -8192 to 8191. JUCE pitchWheelValue takes 0 to 16383.
+            int unsignedPb = outPb + 8192;
+            outputBuffer.addEvent(juce::MidiMessage::pitchWheel(channel, unsignedPb), samplePosition);
 
             outputBuffer.addEvent(juce::MidiMessage::noteOn(channel, outPitch, (juce::uint8)velocity), samplePosition);
 
@@ -126,11 +123,27 @@ void PitchMapper::calculatePitch(int inputNote, int& outPitch, int& outPb)
 
 int PitchMapper::allocateChannel(int inputNote, juce::MidiBuffer& outputBuffer, int samplePosition)
 {
+    // Check if note is already active and free its channel first
+    if (activeVoices[static_cast<size_t>(inputNote)].isActive)
+    {
+        outputBuffer.addEvent(juce::MidiMessage::noteOff(
+            activeVoices[static_cast<size_t>(inputNote)].outChannel,
+            activeVoices[static_cast<size_t>(inputNote)].outPitch),
+            samplePosition);
+        freeChannel(inputNote);
+    }
+
     int channel = 2; // Default if pool is empty somehow
 
     if (numAvailableMpeChannels > 0)
     {
-        channel = mpeChannelPool[--numAvailableMpeChannels];
+        // Allocate from the front (index 0), shift rest down
+        channel = mpeChannelPool[0];
+        for (size_t i = 0; i < numAvailableMpeChannels - 1; ++i)
+        {
+            mpeChannelPool[i] = mpeChannelPool[i + 1];
+        }
+        numAvailableMpeChannels--;
     }
     else if (numActiveVoices > 0)
     {
@@ -142,7 +155,7 @@ int PitchMapper::allocateChannel(int inputNote, juce::MidiBuffer& outputBuffer, 
         channel = stolenVoice.outChannel;
         stolenVoice.isActive = false;
 
-        // Shift queue down
+        // Shift active queue down
         for (size_t i = 0; i < numActiveVoices - 1; ++i)
             activeVoiceNotes[i] = activeVoiceNotes[i + 1];
         numActiveVoices--;

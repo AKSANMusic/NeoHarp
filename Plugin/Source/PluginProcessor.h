@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "HarmonicContext.h"
 #include "PitchMapper.h"
+#include "StrumEngine.h"
 
 //==============================================================================
 class NeoHarpAudioProcessor  : public juce::AudioProcessor
@@ -46,6 +47,9 @@ public:
     // Public method for UI to update context
     void pushNewHarmonicContext (const HarmonicContext& newContext);
 
+    // Audio Processor Value Tree State for automation and preset saving
+    juce::AudioProcessorValueTreeState apvts;
+
 private:
     // Lock-free queue for receiving state updates from the message thread
     juce::AbstractFifo contextFifo { 16 };
@@ -57,8 +61,23 @@ private:
     // Core Engine Mapper
     PitchMapper mapper;
 
-    // Pre-allocated MIDI buffer for processBlock
+    // Sample-accurate Strum Scheduler
+    StrumEngine strumEngine;
+
+    // Pre-allocated MIDI buffers for processBlock
+    juce::MidiBuffer strumBuffer;
     juce::MidiBuffer processedBuffer;
+
+    // Cached parameter pointers for RT safety
+    std::atomic<float>* strumSpeedParam { nullptr };
+
+public:
+    // Read-only diagnostic access for the UI
+    const PitchMapper& getMapper() const { return mapper; }
+    const HarmonicContext& getCurrentContext() const { return currentContext; }
+
+    // Creates the parameter layout for APVTS
+    juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NeoHarpAudioProcessor)

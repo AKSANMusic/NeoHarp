@@ -23,6 +23,10 @@ public:
     // Set zone configurations
     void setZones(int lhMin, int lhMax, int rhMin, int rhMax);
 
+    // Diagnostics for UI
+    int getActiveVoiceCount() const { return static_cast<int>(numActiveVoices); }
+    int getAvailableMpeChannelCount() const { return static_cast<int>(numAvailableMpeChannels); }
+
 private:
     struct ActiveVoice
     {
