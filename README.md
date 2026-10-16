@@ -59,3 +59,5 @@ The C++ Plugin requires CMake (3.20+) and a C++20 compatible compiler. CMake use
 3. **Run the Standalone App / VST3:**
    * The Standalone application will be built to `Plugin/build/NeoHarp_artefacts/Standalone/NeoHarp`.
    * The VST3 will be built to `Plugin/build/NeoHarp_artefacts/VST3/NeoHarp.vst3`.
+
+   *Note for DAW usage:* To use the NeoHarp VST3 properly, load it onto a MIDI track in your DAW. Route its MIDI output to an MPE-compatible synthesizer (e.g. Surge XT, Vital, or Pigments). **Important:** You must configure the target synthesizer's Pitch Bend Range to match NeoHarp's output, which is hardcoded to `±2 semitones` (200 cents).

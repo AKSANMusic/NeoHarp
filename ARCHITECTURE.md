@@ -44,8 +44,12 @@ The most important architectural constraint for a C++ audio plugin is avoiding m
 3. **PitchMapper Engine:** The `PitchMapper` tracks active voices and the MPE channel pool (channels 2-16) exclusively using pre-sized `std::array` containers. `std::map` and `new` keywords are completely omitted to ensure zero heap allocations during live performance.
 4. **Strum Engine:** Triggers sample-accurate note delays by reading `juce::AudioPlayHead` BPM, translating musical divisions into sample counts based on the host sample rate, and buffering into `std::array` to avoid allocations on the sequencer.
 
-### 2.3 Next Steps
-With the core remapping engine, headless tests, strum timing, and diagnostic APVTS GUI successfully implemented, the remaining steps for production release are:
-1. **Full UI Development:** Building out the `PluginEditor` UI grids to visually construct and drag-and-drop `HarmonicContext` scale degree intervals.
-2. **Preset Management:** Saving/Loading XML or JSON representations of scales so the plugin state can be recalled by the host DAW natively via APVTS.
-3. **DAW Integration Testing:** Live stress-testing inside hosts like Ableton/Reaper with MPE synths (Surge XT/Vital) at variable buffer sizes.
+### 2.3 UI and Preset Management
+The GUI (`ScaleBuilderComponent`) renders a 2D interactive grid inside the `PluginEditor`.
+1. **Interactive Grid:** Users can click and drag individual scale degrees vertically to adjust their microtonal offset from the root (0–1200 cents). Changes snap to 50-cent increments.
+2. **Preset Serialization:** `PluginProcessor` contains a `canonicalContext` representing the exact saved scale parameters. `getStateInformation` serializes the `std::array` of scale intervals into a child `ValueTree` appended to the APVTS XML. `setStateInformation` restores the context flawlessly when the host DAW loads the session.
+3. **Headless Stress Testing:** The JUCE plugin is exhaustively fuzzed via a Catch2 automated test that mocks `juce::AudioPlayHead` and throws 1,000 randomized buffers, BPM changes, and scale shifts at `processBlock` to guarantee zero hanging notes before ever entering a DAW.
+
+### 2.4 Next Steps
+The codebase is now fully implemented and robustly tested! The final step is practical application:
+1. **DAW Integration Testing:** Compile the VST3 and load it inside hosts like Ableton, Reaper, or Bitwig. Route its MIDI output into an MPE-capable synth (such as Surge XT, Pigments, or Vital) and adjust the synth's Pitch Bend Range to match NeoHarp ($\pm 2$ semitones / 200 cents) for perfect microtonal execution.

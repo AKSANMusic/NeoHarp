@@ -73,6 +73,7 @@ FetchContent_MakeAvailable(Catch2)
 add_executable(NeoHarpTests
     Tests/PitchMapperTests.cpp
     Tests/StateTests.cpp
+    Tests/StressTests.cpp
     Source/PitchMapper.cpp
     Source/PluginProcessor.cpp
     Source/StrumEngine.cpp
