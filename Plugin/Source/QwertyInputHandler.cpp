@@ -8,9 +8,8 @@ QwertyInputHandler::QwertyInputHandler(juce::MidiMessageCollector& collector)
 
 void QwertyInputHandler::reset()
 {
-    activeKeys.clear();
-    keyToMidiNote.clear();
-    // Note: To be perfectly safe, we should probably emit "All Notes Off" or empty the collector here if needed.
+    activeKeys.fill(false);
+    keyToMidiNote.fill(-1);
 }
 
 bool QwertyInputHandler::isKeyCurrentlyDown(int keyCode) const
@@ -48,7 +47,8 @@ QwertyCommand QwertyInputHandler::popCommand()
 
 bool QwertyInputHandler::keyPressed (const juce::KeyPress& key, juce::Component*)
 {
-    int keyCode = key.getKeyCode();
+    int rawKeyCode = key.getKeyCode();
+    int keyCode = rawKeyCode & 0xFFFF;
 
     // Suppress auto-repeat
     if (activeKeys[keyCode]) return true;
@@ -56,23 +56,30 @@ bool QwertyInputHandler::keyPressed (const juce::KeyPress& key, juce::Component*
     activeKeys[keyCode] = true;
 
     // Check Navigation / Global Modifiers first
-    if (keyCode == juce::KeyPress::spaceKey)
+    // Note: juce::KeyPress::spaceKey, leftKey etc. are actually mapped to high integers in JUCE,
+    // we need to compare them with the raw (unmasked) keyCode.
+    if (rawKeyCode == juce::KeyPress::spaceKey)
     {
         chordLatchEnabled = !chordLatchEnabled;
 
         // If latch was just disabled, flush any LH keys that are no longer physically held down
         if (!chordLatchEnabled)
         {
-            for (auto& pair : activeKeys)
+            for (size_t i = 0; i < 65536; ++i)
             {
-                int k = pair.first;
-                int c = (k >= 0 && k < 128) ? std::toupper(k) : k;
-                bool isLhRoot = (c == 'A' || c == 'S' || c == 'D' || c == 'F' || c == 'G' || c == 'Q' || c == 'W' || c == 'Z' || c == 'X');
-
-                if (isLhRoot && !isKeyCurrentlyDown(k))
+                if (activeKeys[i])
                 {
-                    pair.second = false; // Mark as no longer active
-                    sendNoteOff(k, 1);
+                    int osKeyCode = static_cast<int>(i);
+                    if (i > 255) osKeyCode = static_cast<int>(i) | 0x10000;
+
+                    int c = (i < 128) ? std::toupper(static_cast<int>(i)) : static_cast<int>(i);
+                    bool isLhRoot = (c == 'A' || c == 'S' || c == 'D' || c == 'F' || c == 'G' || c == 'Q' || c == 'W' || c == 'Z' || c == 'X');
+
+                    if (isLhRoot && !isKeyCurrentlyDown(osKeyCode))
+                    {
+                        activeKeys[i] = false;
+                        sendNoteOff(static_cast<int>(i), 1);
+                    }
                 }
             }
         }
@@ -80,25 +87,25 @@ bool QwertyInputHandler::keyPressed (const juce::KeyPress& key, juce::Component*
         pushCommand(QwertyCommand::Type::ToggleLatch, chordLatchEnabled ? 1 : 0);
         return true;
     }
-    if (keyCode == juce::KeyPress::leftKey)
+    if (rawKeyCode == juce::KeyPress::leftKey)
     {
         currentOctaveOffset = juce::jmax(-3, currentOctaveOffset - 1);
         pushCommand(QwertyCommand::Type::OffsetOctave, currentOctaveOffset);
         return true;
     }
-    if (keyCode == juce::KeyPress::rightKey)
+    if (rawKeyCode == juce::KeyPress::rightKey)
     {
         currentOctaveOffset = juce::jmin(3, currentOctaveOffset + 1);
         pushCommand(QwertyCommand::Type::OffsetOctave, currentOctaveOffset);
         return true;
     }
-    if (keyCode == juce::KeyPress::upKey)
+    if (rawKeyCode == juce::KeyPress::upKey)
     {
         currentVelocity = juce::jmin(127, currentVelocity + 10);
         pushCommand(QwertyCommand::Type::OffsetVelocity, currentVelocity);
         return true;
     }
-    if (keyCode == juce::KeyPress::downKey)
+    if (rawKeyCode == juce::KeyPress::downKey)
     {
         currentVelocity = juce::jmax(1, currentVelocity - 10);
         pushCommand(QwertyCommand::Type::OffsetVelocity, currentVelocity);
@@ -115,29 +122,26 @@ bool QwertyInputHandler::keyPressed (const juce::KeyPress& key, juce::Component*
 bool QwertyInputHandler::keyStateChanged (bool, juce::Component*)
 {
     // juce::KeyPress doesn't reliably tell us *which* key was released in this callback.
-    // We must poll our active map against the OS state.
-    for (auto& pair : activeKeys)
+    for (size_t i = 0; i < 65536; ++i)
     {
-        int keyCode = pair.first;
-        bool& isDown = pair.second;
-
-        if (isDown)
+        if (activeKeys[i])
         {
-            if (!isKeyCurrentlyDown(keyCode))
-            {
-                isDown = false;
+            int osKeyCode = static_cast<int>(i);
+            if (i > 255) osKeyCode = static_cast<int>(i) | 0x10000;
 
-                // If it's a left hand key and latch is enabled, we DO NOT send a NoteOff.
-                int c = (keyCode >= 0 && keyCode < 128) ? std::toupper(keyCode) : keyCode;
+            if (!isKeyCurrentlyDown(osKeyCode))
+            {
+                activeKeys[i] = false;
+
+                int c = (i < 128) ? std::toupper(static_cast<int>(i)) : static_cast<int>(i);
                 bool isLhRoot = (c == 'A' || c == 'S' || c == 'D' || c == 'F' || c == 'G' || c == 'Q' || c == 'W' || c == 'Z' || c == 'X');
 
                 if (isLhRoot && chordLatchEnabled)
                 {
-                    // Do not send NoteOff, keep the chord latched
                     continue;
                 }
 
-                sendNoteOff(keyCode, 1);
+                sendNoteOff(static_cast<int>(i), 1);
             }
         }
     }
@@ -242,19 +246,18 @@ void QwertyInputHandler::handleRightHand(int keyCode)
 
 void QwertyInputHandler::sendNoteOn(int keyCode, int midiChannel, int midiNote)
 {
-    keyToMidiNote[keyCode] = midiNote;
+    int idx = keyCode & 0xFFFF;
+    keyToMidiNote[idx] = midiNote;
     midiCollector.addMessageToQueue(juce::MidiMessage::noteOn(midiChannel, midiNote, (juce::uint8)currentVelocity));
 }
 
 void QwertyInputHandler::sendNoteOff(int keyCode, int midiChannel)
 {
-    if (keyToMidiNote.find(keyCode) != keyToMidiNote.end())
+    int idx = keyCode & 0xFFFF;
+    int midiNote = keyToMidiNote[idx];
+    if (midiNote != -1)
     {
-        int midiNote = keyToMidiNote[keyCode];
-        if (midiNote != -1)
-        {
-            midiCollector.addMessageToQueue(juce::MidiMessage::noteOff(midiChannel, midiNote));
-            keyToMidiNote[keyCode] = -1;
-        }
+        midiCollector.addMessageToQueue(juce::MidiMessage::noteOff(midiChannel, midiNote));
+        keyToMidiNote[idx] = -1;
     }
 }

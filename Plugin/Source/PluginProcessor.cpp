@@ -161,6 +161,7 @@ void NeoHarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     buffer.clear();
     strumBuffer.clear();
     processedBuffer.clear();
+    mergedBuffer.clear();
 
     // 1. Lock-free pop of any new state changes from UI. Drain the FIFO completely.
     auto numToRead = contextFifo.getNumReady();
@@ -195,7 +196,6 @@ void NeoHarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     }
 
     // 3. Collect QWERTY messages and merge with host MIDI
-    juce::MidiBuffer mergedBuffer;
     mergedBuffer.addEvents(midiMessages, 0, buffer.getNumSamples(), 0);
     qwertyCollector.removeNextBlockOfMessages(mergedBuffer, buffer.getNumSamples());
 

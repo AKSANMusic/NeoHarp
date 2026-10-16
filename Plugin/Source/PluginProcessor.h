@@ -73,6 +73,7 @@ private:
     // Pre-allocated MIDI buffers for processBlock
     juce::MidiBuffer strumBuffer;
     juce::MidiBuffer processedBuffer;
+    juce::MidiBuffer mergedBuffer;
 
     // QWERTY Input Collector
     juce::MidiMessageCollector qwertyCollector;

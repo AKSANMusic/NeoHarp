@@ -39,16 +39,12 @@ public:
 private:
     juce::MidiMessageCollector& midiCollector;
 
-    // State tracking to prevent OS key auto-repeat
-    // We use a fixed array sized to hold common ascii keycodes + special keys.
-    // Special keys like right arrow are mapped high in JUCE (e.g. 0x10000 | something).
-    // Let's use a std::map for this specific handler to handle any JUCE key code safely.
-    // Since this runs on the UI thread (key events) and passes to processor via FIFO,
-    // using a std::map here does NOT violate audio thread RT constraints!
-    std::map<int, bool> activeKeys;
+    // State tracking to prevent OS key auto-repeat.
+    // Fixed size array. Special keys use higher bits, so we mask with 0xFFFF to fit.
+    std::array<bool, 65536> activeKeys {};
 
     // Map of which key generated which MIDI note, so we can reliably send NoteOffs even if octave shifted
-    std::map<int, int> keyToMidiNote;
+    std::array<int, 65536> keyToMidiNote {};
 
     // Current playing state
     int currentVelocity { 100 };
