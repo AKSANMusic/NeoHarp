@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "ScaleBuilderComponent.h"
+#include "QwertyInputHandler.h"
 
 //==============================================================================
 class NeoHarpAudioProcessorEditor  : public juce::AudioProcessorEditor, public juce::Timer
@@ -25,6 +26,9 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> strumSpeedAttachment;
 
     ScaleBuilderComponent scaleBuilder;
+
+    juce::ToggleButton qwertyToggle { "QWERTY Keyboard Mode" };
+    QwertyInputHandler qwertyHandler;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NeoHarpAudioProcessorEditor)
 };

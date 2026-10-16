@@ -74,12 +74,18 @@ private:
     juce::MidiBuffer strumBuffer;
     juce::MidiBuffer processedBuffer;
 
+    // QWERTY Input Collector
+    juce::MidiMessageCollector qwertyCollector;
+
     // Cached parameter pointers for RT safety
     std::atomic<float>* strumSpeedParam { nullptr };
 
 public:
     // Read-only diagnostic access for the UI
     const PitchMapper& getMapper() const { return mapper; }
+
+    // Allow UI to pass the collector reference to the input handler
+    juce::MidiMessageCollector& getQwertyCollector() { return qwertyCollector; }
 
     // Creates the parameter layout for APVTS
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

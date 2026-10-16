@@ -103,9 +103,15 @@ void NeoHarpAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
 {
     // Initialize context
     contextFifo.reset();
+
+    // Update PitchMapper zones to accommodate QWERTY layout
+    mapper.setZones(21, 47, 48, 109);
     mapper.reset();
+
     strumEngine.prepareToPlay(sampleRate);
     strumEngine.reset();
+
+    qwertyCollector.reset(sampleRate);
 
     // Ensure the audio thread starts with the canonical context
     // If running in a DAW, setStateInformation will have already populated this
@@ -188,54 +194,63 @@ void NeoHarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         }
     }
 
-    // 3. Process incoming MIDI (from host)
-    // Here we can intercept chords intended to be strummed.
-    // For now, we will pass them directly to the mapper,
-    // but we can trigger the strum engine via CC or UI.
-    for (const auto metadata : midiMessages)
+    // 3. Collect QWERTY messages and merge with host MIDI
+    juce::MidiBuffer mergedBuffer;
+    mergedBuffer.addEvents(midiMessages, 0, buffer.getNumSamples(), 0);
+    qwertyCollector.removeNextBlockOfMessages(mergedBuffer, buffer.getNumSamples());
+
+    // 4. Process incoming MIDI (merged from host + QWERTY)
+    for (const auto metadata : mergedBuffer)
     {
         auto message = metadata.getMessage();
 
-        // As a PoC hook: If we receive a C1 (note 24) on LH, schedule a strum!
-        if (message.isNoteOn() && message.getNoteNumber() == 24)
+        // Handle Strum Triggers
+        if (message.isNoteOn() && (message.getNoteNumber() == 24 || message.getNoteNumber() == 25))
         {
             float speedMs = strumSpeedParam->load();
 
-            // Get BPM from host for sync
             double bpm = 120.0;
             if (auto* playHead = getPlayHead())
             {
                 if (auto position = playHead->getPosition())
                 {
                     if (auto hostBpm = position->getBpm())
-                    {
                         bpm = *hostBpm;
-                    }
                 }
             }
 
-            int chord[6] = { 60, 62, 64, 65, 67, 69 }; // Some RH keys
+            // Simple C-major strum test chord for PoC
+            int chord[6] = { 60, 62, 64, 65, 67, 69 };
+            bool isDownStrum = (message.getNoteNumber() == 24);
 
-            // If speedMs is 0.0, strumEngine will use BPM-synced 1/16th notes instead of arbitrary milliseconds
-            strumEngine.scheduleStrum(chord, 6, speedMs, true, 100, 5, bpm, 0.25);
+            strumEngine.scheduleStrum(chord, 6, speedMs, isDownStrum, 100, 5, bpm, 0.25);
+        }
+        else if (message.isNoteOn() && message.getNoteNumber() == 26)
+        {
+            // Mute / Stop Strum
+            strumEngine.reset();
         }
         else
         {
+            // Only pass through NoteOffs for strum triggers if we consumed their NoteOns
+            if (message.isNoteOff() && (message.getNoteNumber() >= 24 && message.getNoteNumber() <= 26))
+                continue;
+
             mapper.processMessage(message, metadata.samplePosition, processedBuffer);
         }
     }
 
-    // 4. Process Strum Engine (injects scheduled note-ons into strumBuffer)
+    // 5. Process Strum Engine (injects scheduled note-ons into strumBuffer)
     strumEngine.processBlock(strumBuffer, buffer.getNumSamples());
 
-    // 5. Route strum output back through PitchMapper
+    // 6. Route strum output back through PitchMapper
     for (const auto metadata : strumBuffer)
     {
         auto message = metadata.getMessage();
         mapper.processMessage(message, metadata.samplePosition, processedBuffer);
     }
 
-    // 6. Send our modified buffer to the host
+    // 7. Send our modified buffer to the host
     midiMessages.swapWith(processedBuffer);
 }
 

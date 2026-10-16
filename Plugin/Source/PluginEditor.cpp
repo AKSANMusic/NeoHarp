@@ -3,15 +3,32 @@
 
 //==============================================================================
 NeoHarpAudioProcessorEditor::NeoHarpAudioProcessorEditor (NeoHarpAudioProcessor& p)
-    : AudioProcessorEditor (&p), audioProcessor (p), scaleBuilder(p)
+    : AudioProcessorEditor (&p), audioProcessor (p), scaleBuilder(p), qwertyHandler(p.getQwertyCollector())
 {
-    setSize (600, 400); // Larger size to fit grid and diagnostics
+    setSize (600, 430); // Larger size to fit grid, diagnostics, and QWERTY toggle
 
     strumSpeedSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     strumSpeedSlider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 50, 20);
     addAndMakeVisible(strumSpeedSlider);
 
     addAndMakeVisible(scaleBuilder);
+
+    addAndMakeVisible(qwertyToggle);
+    qwertyToggle.onClick = [this]()
+    {
+        if (qwertyToggle.getToggleState())
+        {
+            setWantsKeyboardFocus(true);
+            addKeyListener(&qwertyHandler);
+            grabKeyboardFocus();
+        }
+        else
+        {
+            removeKeyListener(&qwertyHandler);
+            setWantsKeyboardFocus(false);
+            qwertyHandler.reset();
+        }
+    };
 
     strumSpeedAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.apvts, "STRUM_SPEED", strumSpeedSlider);
@@ -21,11 +38,31 @@ NeoHarpAudioProcessorEditor::NeoHarpAudioProcessorEditor (NeoHarpAudioProcessor&
 
 NeoHarpAudioProcessorEditor::~NeoHarpAudioProcessorEditor()
 {
+    removeKeyListener(&qwertyHandler);
     stopTimer();
 }
 
 void NeoHarpAudioProcessorEditor::timerCallback()
 {
+    // Poll commands from QWERTY handler (e.g. scale select, octave shift)
+    auto cmd = qwertyHandler.popCommand();
+    while (cmd.type != QwertyCommand::Type::None)
+    {
+        if (cmd.type == QwertyCommand::Type::SetScale)
+        {
+            // For PoC, just setting standard scales to test command routing
+            HarmonicContext newCtx = audioProcessor.getCanonicalContext();
+            if (cmd.value == 0) // Major
+                newCtx.scale.intervalsCents = { 0.0f, 200.0f, 400.0f, 500.0f, 700.0f, 900.0f, 1100.0f };
+            else if (cmd.value == 1) // Minor
+                newCtx.scale.intervalsCents = { 0.0f, 200.0f, 300.0f, 500.0f, 700.0f, 800.0f, 1000.0f };
+            // Push update
+            audioProcessor.setHarmonicContext(newCtx);
+            scaleBuilder.repaint();
+        }
+        cmd = qwertyHandler.popCommand();
+    }
+
     repaint();
 }
 
@@ -64,10 +101,17 @@ void NeoHarpAudioProcessorEditor::paint (juce::Graphics& g)
 
     g.drawText("RH Voices: " + activeVoices + " / 15", 30, 190, 180, 20, juce::Justification::left, false);
     g.drawText("MPE Pool: " + mpeAvailable, 30, 210, 180, 20, juce::Justification::left, false);
+
+    // QWERTY Latch indicator
+    g.setColour(qwertyHandler.isLatchEnabled() ? juce::Colours::green : juce::Colours::darkgrey);
+    g.fillEllipse(30, 235, 10, 10);
+    g.setColour(juce::Colours::white);
+    g.drawText("Chord Latch [Space]", 45, 230, 150, 20, juce::Justification::left, false);
 }
 
 void NeoHarpAudioProcessorEditor::resized()
 {
+    qwertyToggle.setBounds(20, 15, 200, 24);
     strumSpeedSlider.setBounds(150, 60, 200, 20);
     scaleBuilder.setBounds(240, 40, 340, 340); // Align perfectly without overlap
 }

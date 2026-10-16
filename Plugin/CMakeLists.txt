@@ -41,6 +41,8 @@ target_sources(NeoHarp PRIVATE
     Source/StrumEngine.h
     Source/ScaleBuilderComponent.cpp
     Source/ScaleBuilderComponent.h
+    Source/QwertyInputHandler.cpp
+    Source/QwertyInputHandler.h
 )
 
 juce_generate_juce_header(NeoHarp)
@@ -74,11 +76,13 @@ add_executable(NeoHarpTests
     Tests/PitchMapperTests.cpp
     Tests/StateTests.cpp
     Tests/StressTests.cpp
+    Tests/QwertyTests.cpp
     Source/PitchMapper.cpp
     Source/PluginProcessor.cpp
     Source/StrumEngine.cpp
     Source/PluginEditor.cpp
     Source/ScaleBuilderComponent.cpp
+    Source/QwertyInputHandler.cpp
 )
 
 target_include_directories(NeoHarpTests PRIVATE Source)
@@ -89,6 +93,7 @@ target_include_directories(NeoHarpTests PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/NeoH
 target_link_libraries(NeoHarpTests PRIVATE
     Catch2::Catch2WithMain
     juce::juce_audio_basics
+    juce::juce_audio_devices
     juce::juce_audio_processors
     juce::juce_core
     juce::juce_events
