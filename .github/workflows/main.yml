@@ -1,0 +1,44 @@
+name: Build NeoHarp
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Linux Dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential pkg-config libasound2-dev libjack-jackd2-dev \
+          ladspa-sdk libcurl4-openssl-dev libfreetype6-dev libx11-dev libxcomposite-dev \
+          libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+          libglu1-mesa-dev mesa-common-dev
+
+    - name: Configure CMake
+      run: cmake -B Plugin/build -S Plugin -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build Standalone and VST3
+      run: cmake --build Plugin/build --config Release
+
+    - name: Upload Compiled Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: NeoHarp-${{ matrix.os }}
+        path: |
+          Plugin/build/NeoHarp_artefacts/**/Standalone/*
+          Plugin/build/NeoHarp_artefacts/**/VST3/**
